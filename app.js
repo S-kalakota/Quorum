@@ -65,6 +65,51 @@ const state = {
 
 restoreState();
 
+const API = window.location.port === "8000" ? "" : "http://localhost:8000";
+async function api(path, body, method) {
+  const r = await fetch(API + path, {
+    method: method || (body ? "POST" : "GET"),
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// Backend ticket -> UI ticket. Solutions/resolution are client-side (teammates' stage) and preserved across syncs.
+function fromBackend(t) {
+  const local = state.tickets.find((x) => x.id === t.key);
+  return {
+    id: t.key, title: t.summary, description: t.description, reporter: t.reporter,
+    createdAt: t.created, repository: t.repository || "", status: t.status,
+    comments: t.comments || [], brief: t.brief || null, briefMd: t.brief_md || "", error: t.error || "",
+    solutions: local?.solutions || [], resolution: local?.resolution || null
+  };
+}
+
+async function syncTickets() {
+  try {
+    const list = await api("/api/tickets");
+    state.tickets = list.map(fromBackend);
+    persistState();
+  } catch (err) {
+    console.warn("backend unreachable", err);
+  }
+}
+
+let pollTimer = null;
+function startPolling() {
+  stopPolling();
+  pollTimer = window.setInterval(async () => {
+    if (state.currentScreen !== "tickets") return;
+    const before = JSON.stringify(state.tickets.map((t) => [t.id, t.status, t.comments?.length]));
+    await syncTickets();
+    const after = JSON.stringify(state.tickets.map((t) => [t.id, t.status, t.comments?.length]));
+    if (before !== after) renderScreen("tickets", { focus: false, updateHash: false });
+  }, 3000);
+}
+function stopPolling() { if (pollTimer) window.clearInterval(pollTimer); pollTimer = null; }
+
 const screenRoot = document.querySelector("#screenRoot");
 const screenTitle = document.querySelector("#screenTitle");
 const screenDescription = document.querySelector("#screenDescription");
@@ -114,6 +159,9 @@ function selectedTicket() {
 
 function ticketStatus(ticket) {
   if (ticket.resolution) return { label: "Decided", tone: "success" };
+  if (ticket.status === "Clarifying") return { label: "Clarifying", tone: "active" };
+  if (ticket.status === "Agent error") return { label: "Agent error", tone: "error" };
+  if (ticket.status === "Brief ready" && !ticket.solutions.length) return { label: "Brief ready", tone: "warning" };
   if (ticket.status === "Solving") return { label: "Solving", tone: "active" };
   if (ticket.solutions.length) return { label: "Needs decision", tone: "warning" };
   return { label: "Ready to solve", tone: "" };
@@ -180,7 +228,28 @@ function ticketDetail(ticket, expanded) {
   const decision = ticket.resolution && delivery
     ? `${ticket.resolution.solutionTitle} · ${delivery.title}`
     : "No decision yet";
-  const actionLabel = ticket.solutions.length ? "Review solutions" : "Solve ticket";
+  const actionLabel = ticket.solutions.length ? "Review solutions" : ticket.status === "Brief ready" ? "Start solving" : "Solve ticket";
+  const isAgent = (name) => (name || "").toLowerCase().includes("agent");
+  const awaitingReply = ticket.status === "Clarifying" && ticket.comments.length && isAgent(ticket.comments.at(-1).author);
+  const thread = ticket.comments.length
+    ? ticket.comments.map((c) => `
+        <article class="thread-comment ${isAgent(c.author) ? "thread-comment--agent" : ""}">
+          <header><strong>${escapeHtml(c.author)}</strong><span class="mono">${escapeHtml(c.created)}</span></header>
+          <pre class="thread-body">${escapeHtml(c.body)}</pre>
+        </article>`).join("")
+    : `<p class="muted">${ticket.status === "Clarifying" ? "The agent is reading the ticket and the code…" : "No clarification yet. Solve the ticket to start the agent."}</p>`;
+  const replyBox = ticket.status === "Clarifying" ? `
+        <form class="thread-reply" data-reply-form="${escapeHtml(ticket.id)}">
+          <label class="field-label" for="reply-${escapeHtml(ticket.id)}">Reply as ${escapeHtml(ticket.reporter)}${awaitingReply ? "" : " (agent is thinking…)"}</label>
+          <textarea class="field-textarea" id="reply-${escapeHtml(ticket.id)}" rows="3" placeholder="Answer the agent, or type confirm"></textarea>
+          <div class="form-actions"><button class="btn btn--primary" type="submit" ${awaitingReply ? "" : "disabled"}>Post reply</button></div>
+        </form>` : "";
+  const briefBlock = ticket.briefMd ? `
+      <details class="ticket-brief" open>
+        <summary><strong>Task brief</strong> · confidence ${Math.round((ticket.brief?.confidence || 0) * 100)}%</summary>
+        <pre class="thread-body">${escapeHtml(ticket.briefMd)}</pre>
+      </details>` : "";
+  const errorBlock = ticket.error ? `<p class="field-help" role="alert">Agent error: ${escapeHtml(ticket.error)}</p>` : "";
 
   return `
     <section class="ticket-detail" id="ticketDetail-${escapeHtml(ticket.id)}" tabindex="-1" aria-labelledby="ticketDetailHeading-${escapeHtml(ticket.id)}" ${expanded ? "" : "hidden"}>
@@ -205,6 +274,14 @@ function ticketDetail(ticket, expanded) {
         <div><dt>Solutions</dt><dd>${escapeHtml(attempts)}</dd></div>
         <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
       </dl>
+
+      <section class="ticket-thread" aria-label="Clarification with the agent">
+        <strong>Clarification</strong>
+        ${errorBlock}
+        ${thread}
+        ${replyBox}
+      </section>
+      ${briefBlock}
     </section>
   `;
 }
@@ -270,6 +347,14 @@ function solutionTicketContext(ticket) {
         <div><dt>Attempts</dt><dd>${escapeHtml(attempts)}</dd></div>
         <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
       </dl>
+
+      <section class="ticket-thread" aria-label="Clarification with the agent">
+        <strong>Clarification</strong>
+        ${errorBlock}
+        ${thread}
+        ${replyBox}
+      </section>
+      ${briefBlock}
     </section>
   `;
 }
@@ -452,8 +537,7 @@ function submissionTemplate() {
         <div class="field">
           <label class="field-label" for="ticketRepository">Repository</label>
           <select class="field-select" id="ticketRepository" name="repository">
-            <option>frontend-platform</option>
-            <option>design-system</option>
+            <option>demo_repo (Notely)</option>
           </select>
           <span class="field-help">The solver reads this repository when the ticket is started.</span>
         </div>
@@ -490,8 +574,7 @@ function setupTemplate() {
             <span>New tickets start here.</span>
           </div>
           <select class="field-select" id="setupRepository">
-            <option>frontend-platform</option>
-            <option>design-system</option>
+            <option>demo_repo (Notely)</option>
           </select>
         </div>
 
@@ -578,11 +661,34 @@ function bindTickets() {
     });
   });
 
+  document.querySelectorAll("[data-reply-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const ticket = state.tickets.find((item) => item.id === form.dataset.replyForm);
+      const box = form.querySelector("textarea");
+      const body = box.value.trim();
+      if (!ticket || !body) return;
+      form.querySelector("button").disabled = true;
+      await api(`/api/tickets/${ticket.id}/comments`, { author: ticket.reporter, body });
+      await syncTickets();
+      renderScreen("tickets", { focus: false, updateHash: false });
+    });
+  });
+
   document.querySelectorAll("[data-view-solutions], [data-solve-ticket]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const ticketId = button.dataset.viewSolutions || button.dataset.solveTicket;
       const ticket = state.tickets.find((item) => item.id === ticketId);
       if (!ticket) return;
+      if (!ticket.solutions.length && ticket.status !== "Brief ready") {
+        // Stage 1: run the intake agent; the conversation happens in the ticket thread.
+        button.disabled = true; button.textContent = "Starting agent…";
+        try { await api(`/api/tickets/${ticket.id}/solve`, {}); } catch (err) { alert(err.message); }
+        state.expandedTicketId = ticket.id;
+        await syncTickets();
+        renderScreen("tickets", { focus: false, updateHash: false });
+        return;
+      }
       state.selectedTicketId = ticket.id;
       state.selectedSolutionId = ticket.resolution?.solutionId || ticket.solutions[0]?.id || null;
       state.deliveryChoice = ticket.resolution?.delivery || "preview";
@@ -693,25 +799,22 @@ function bindSubmission() {
     button.disabled = true;
     button.textContent = "Creating ticket";
 
-    window.setTimeout(() => {
-      const ticket = {
-        id: nextTicketId(),
-        title: title.value.trim(),
-        description: description.value.trim(),
-        reporter: reporter.value.trim(),
-        createdAt: new Date().toISOString(),
-        repository: document.querySelector("#ticketRepository").value,
-        status: "Ready",
-        solutions: [],
-        resolution: null
-      };
-      state.tickets.unshift(ticket);
+    api("/api/tickets", {
+      title: title.value.trim(),
+      description: description.value.trim(),
+      reporter: reporter.value.trim(),
+      repository: document.querySelector("#ticketRepository").value
+    }).then(async (created) => {
+      await syncTickets();
       state.selectedTicketId = null;
-      state.expandedTicketId = ticket.id;
+      state.expandedTicketId = created.key;
       state.selectedSolutionId = null;
       persistState();
       renderScreen("tickets");
-    }, 400);
+    }).catch((err) => {
+      button.dataset.state = ""; button.disabled = false; button.textContent = "Create ticket";
+      alert("Could not create ticket: " + err.message);
+    });
   });
 }
 
@@ -835,7 +938,10 @@ if (normalizedInitialRoute === "solutions") {
   state.deliveryChoice = "preview";
   persistState();
 }
-renderScreen(screens[normalizedInitialRoute] ? normalizedInitialRoute : "tickets", {
-  focus: false,
-  updateHash: !screens[normalizedInitialRoute]
+syncTickets().then(() => {
+  renderScreen(screens[normalizedInitialRoute] ? normalizedInitialRoute : "tickets", {
+    focus: false,
+    updateHash: !screens[normalizedInitialRoute]
+  });
+  startPolling();
 });

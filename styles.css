@@ -1300,3 +1300,13 @@ code {
     transition-duration: 150ms !important;
   }
 }
+
+/* ---- Clarification thread (intake agent) ---- */
+.ticket-thread { margin-top: 1.25rem; display: grid; gap: .75rem; }
+.thread-comment { border-left: 3px solid var(--border, #d9dce3); padding: .5rem .9rem; border-radius: 4px; background: var(--surface-2, #f7f8fa); }
+.thread-comment--agent { border-left-color: var(--accent, #2d5be3); background: color-mix(in srgb, var(--accent, #2d5be3) 8%, transparent); }
+.thread-comment header { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; margin-bottom: .25rem; }
+.thread-body { white-space: pre-wrap; font: inherit; margin: 0; line-height: 1.5; }
+.thread-reply { display: grid; gap: .5rem; margin-top: .5rem; }
+.ticket-brief { margin-top: 1rem; padding: .75rem 1rem; border: 1px solid var(--border, #d9dce3); border-radius: 6px; }
+.ticket-brief summary { cursor: pointer; }
