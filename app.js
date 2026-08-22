@@ -1,7 +1,7 @@
 /* Hallmark · macrostructure: Index-First · tone: technical-utilitarian · anchor hue: cobalt
  * Hallmark · genre: modern-minimal · theme: Cobalt · enrichment: none · nav: N9 · footer: Ft1
  * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
- * interaction: ticket index · solution selection · delivery decision
+ * interaction: ticket disclosure · solution selection · delivery decision
  */
 
 const STORAGE_KEY = "quorum-ui-v2";
@@ -9,11 +9,11 @@ const STORAGE_KEY = "quorum-ui-v2";
 const screens = {
   tickets: {
     title: "Tickets",
-    description: "Incoming work appears here. Open a ticket to review every solution attempted for it."
+    description: "Incoming work appears here. Open a ticket to read its description, reporter, status, and attempted solutions."
   },
   solutions: {
     title: "Solutions",
-    description: "Review the attempts for one ticket, choose a solution, then decide how to ship it."
+    description: "Select a ticket, review its context and attempts, then choose how to ship a solution."
   },
   setup: {
     title: "Setup",
@@ -57,6 +57,7 @@ const state = {
   currentScreen: "tickets",
   tickets: [],
   selectedTicketId: null,
+  expandedTicketId: null,
   selectedSolutionId: null,
   deliveryChoice: "preview",
   indexState: "ready"
@@ -84,6 +85,7 @@ function restoreState() {
     if (!saved || !Array.isArray(saved.tickets)) return;
     state.tickets = saved.tickets;
     state.selectedTicketId = saved.selectedTicketId || null;
+    state.expandedTicketId = saved.expandedTicketId || null;
     state.selectedSolutionId = saved.selectedSolutionId || null;
     state.deliveryChoice = deliveryOptions[saved.deliveryChoice] ? saved.deliveryChoice : "preview";
   } catch {
@@ -95,6 +97,7 @@ function persistState() {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
     tickets: state.tickets,
     selectedTicketId: state.selectedTicketId,
+    expandedTicketId: state.expandedTicketId,
     selectedSolutionId: state.selectedSolutionId,
     deliveryChoice: state.deliveryChoice
   }));
@@ -114,6 +117,11 @@ function ticketStatus(ticket) {
   if (ticket.status === "Solving") return { label: "Solving", tone: "active" };
   if (ticket.solutions.length) return { label: "Needs decision", tone: "warning" };
   return { label: "Ready to solve", tone: "" };
+}
+
+function ticketStatusControl(ticket, status) {
+  if (status.label !== "Ready to solve") return statusBadge(status.label, status.tone);
+  return `<button class="ticket-ready-action" type="button" data-solve-ticket="${escapeHtml(ticket.id)}" aria-label="Solve ${escapeHtml(ticket.title)}">Ready to solve <span aria-hidden="true">→</span></button>`;
 }
 
 function ticketsTemplate() {
@@ -136,7 +144,7 @@ function ticketsTemplate() {
         <p>Newest first</p>
       </div>
       <div class="ticket-list">
-        ${state.tickets.map(ticketRow).join("")}
+        ${state.tickets.map((ticket) => `${ticketRow(ticket)}${ticketDetail(ticket, state.expandedTicketId === ticket.id)}`).join("")}
       </div>
     </section>
   `;
@@ -144,33 +152,142 @@ function ticketsTemplate() {
 
 function ticketRow(ticket) {
   const status = ticketStatus(ticket);
+  const expanded = state.expandedTicketId === ticket.id;
   const attemptCopy = ticket.solutions.length
     ? `${ticket.solutions.length} ${ticket.solutions.length === 1 ? "attempt" : "attempts"}`
     : "No attempts";
 
   return `
-    <article class="ticket-row">
+    <article class="ticket-row" data-expanded="${expanded}">
       <span class="ticket-row__id mono">${escapeHtml(ticket.id)}</span>
       <span class="ticket-row__main">
         <strong>${escapeHtml(ticket.title)}</strong>
         <span>${escapeHtml(ticket.repository)}</span>
       </span>
       <span class="ticket-row__attempts">${attemptCopy}</span>
-      <span class="ticket-row__status">${statusBadge(status.label, status.tone)}</span>
-      <button class="btn btn--quiet ticket-row__open" type="button" data-open-ticket="${escapeHtml(ticket.id)}">View solutions</button>
+      <span class="ticket-row__status">${ticketStatusControl(ticket, status)}</span>
+      <button class="btn btn--quiet ticket-row__open" type="button" data-open-ticket="${escapeHtml(ticket.id)}" aria-expanded="${expanded}" aria-controls="ticketDetail-${escapeHtml(ticket.id)}">${expanded ? "Hide details" : "View ticket"}</button>
     </article>
+  `;
+}
+
+function ticketDetail(ticket, expanded) {
+  const status = ticketStatus(ticket);
+  const attempts = ticket.solutions.length
+    ? `${ticket.solutions.length} ${ticket.solutions.length === 1 ? "attempt" : "attempts"}`
+    : "No attempts yet";
+  const delivery = ticket.resolution ? deliveryOptions[ticket.resolution.delivery] : null;
+  const decision = ticket.resolution && delivery
+    ? `${ticket.resolution.solutionTitle} · ${delivery.title}`
+    : "No decision yet";
+  const actionLabel = ticket.solutions.length ? "Review solutions" : "Solve ticket";
+
+  return `
+    <section class="ticket-detail" id="ticketDetail-${escapeHtml(ticket.id)}" tabindex="-1" aria-labelledby="ticketDetailHeading-${escapeHtml(ticket.id)}" ${expanded ? "" : "hidden"}>
+      <header class="ticket-detail__head">
+        <div>
+          <span class="mono">${escapeHtml(ticket.id)}</span>
+          <h3 id="ticketDetailHeading-${escapeHtml(ticket.id)}">Ticket details</h3>
+        </div>
+        <button class="btn btn--primary" type="button" data-view-solutions="${escapeHtml(ticket.id)}">${actionLabel}</button>
+      </header>
+
+      <div class="ticket-description">
+        <strong>Description</strong>
+        <p>${escapeHtml(ticket.description || "No description was provided.")}</p>
+      </div>
+
+      <dl class="ticket-facts">
+        <div><dt>Reported by</dt><dd>${escapeHtml(ticket.reporter || "Not recorded")}</dd></div>
+        <div><dt>Created</dt><dd>${escapeHtml(formatTicketDate(ticket.createdAt))}</dd></div>
+        <div><dt>Repository</dt><dd><code>${escapeHtml(ticket.repository)}</code></dd></div>
+        <div><dt>Status</dt><dd>${statusBadge(status.label, status.tone)}</dd></div>
+        <div><dt>Solutions</dt><dd>${escapeHtml(attempts)}</dd></div>
+        <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
+      </dl>
+    </section>
+  `;
+}
+
+function formatTicketDate(value) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function solutionTicketPicker(ticket) {
+  const hasTickets = state.tickets.length > 0;
+  const placeholder = hasTickets ? "Select a ticket" : "No tickets available";
+
+  return `
+    <section class="solution-ticket-picker" aria-labelledby="solutionTicketPickerHeading">
+      <div class="solution-ticket-picker__copy">
+        <h2 id="solutionTicketPickerHeading">Choose the ticket to solve.</h2>
+        <p>Solutions are scoped to the ticket you select here. Nothing is chosen automatically.</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="solutionTicketSelect">Ticket</label>
+        <select class="field-select" id="solutionTicketSelect" aria-describedby="solutionTicketSelectHelp" ${hasTickets ? "" : "disabled"}>
+          <option value="" ${ticket ? "" : "selected"}>${placeholder}</option>
+          ${state.tickets.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === ticket?.id ? "selected" : ""}>${escapeHtml(item.id)} · ${escapeHtml(item.title)}</option>`).join("")}
+        </select>
+        <span class="field-help" id="solutionTicketSelectHelp">Select a ticket to see its context and attempted solutions.</span>
+      </div>
+    </section>
+  `;
+}
+
+function solutionTicketContext(ticket) {
+  const status = ticketStatus(ticket);
+  const attempts = ticket.solutions.length
+    ? `${ticket.solutions.length} ${ticket.solutions.length === 1 ? "attempt" : "attempts"}`
+    : "No attempts yet";
+  const delivery = ticket.resolution ? deliveryOptions[ticket.resolution.delivery] : null;
+  const decision = ticket.resolution && delivery
+    ? `${ticket.resolution.solutionTitle} · ${delivery.title}`
+    : "No decision yet";
+
+  return `
+    <section class="solution-ticket-context" aria-labelledby="solutionTicketHeading">
+      <header class="solution-ticket-context__head">
+        <div>
+          <span class="mono">${escapeHtml(ticket.id)}</span>
+          <h2 id="solutionTicketHeading">${escapeHtml(ticket.title)}</h2>
+        </div>
+        ${statusBadge(status.label, status.tone)}
+      </header>
+
+      <div class="solution-ticket-description">
+        <strong>Description</strong>
+        <p>${escapeHtml(ticket.description || "No description was provided.")}</p>
+      </div>
+
+      <dl class="solution-ticket-facts">
+        <div><dt>Reported by</dt><dd>${escapeHtml(ticket.reporter || "Not recorded")}</dd></div>
+        <div><dt>Created</dt><dd>${escapeHtml(formatTicketDate(ticket.createdAt))}</dd></div>
+        <div><dt>Repository</dt><dd><code>${escapeHtml(ticket.repository)}</code></dd></div>
+        <div><dt>Attempts</dt><dd>${escapeHtml(attempts)}</dd></div>
+        <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
+      </dl>
+    </section>
   `;
 }
 
 function solutionsTemplate() {
   const ticket = selectedTicket();
+  const ticketPicker = solutionTicketPicker(ticket);
+
   if (!ticket) {
     return `
-      <section class="empty-state" aria-labelledby="emptySolutionsHeading">
-        <div class="empty-state__copy">
-          <h2 id="emptySolutionsHeading">Select a ticket first.</h2>
-          <p>Open a ticket to see its attempted solutions and choose what to ship.</p>
-          <button class="btn btn--primary" type="button" data-screen-link="tickets">View tickets</button>
+      <section class="solutions-selection">
+        ${ticketPicker}
+        <div class="solution-selection-empty" aria-labelledby="emptySolutionsHeading">
+          <div>
+            <h3 id="emptySolutionsHeading">No ticket selected.</h3>
+            <p>${state.tickets.length ? "Choose a ticket above to review its details and start solving." : "Create a ticket first, then return here to start solving."}</p>
+            ${state.tickets.length ? "" : '<button class="btn btn--primary" type="button" data-screen-link="submission">Create ticket</button>'}
+          </div>
         </div>
       </section>
     `;
@@ -179,15 +296,17 @@ function solutionsTemplate() {
   if (!ticket.solutions.length) {
     const solving = ticket.status === "Solving";
     return `
-      <section class="solution-empty" aria-labelledby="noAttemptsHeading">
-        <button class="back-link" type="button" data-screen-link="tickets">← Tickets</button>
-        <div class="solution-empty__body">
-          <span class="mono">${escapeHtml(ticket.id)}</span>
-          <h2 id="noAttemptsHeading">${escapeHtml(ticket.title)}</h2>
-          <p>${solving ? "The solver is working. Attempted solutions will collect here." : "No solutions have been attempted for this ticket yet."}</p>
-          <button class="btn btn--primary" id="runSolve" type="button" ${solving ? 'data-state="loading" disabled' : ""}>
-            ${solving ? "Running solver" : "Run solve"}
-          </button>
+      <section class="solutions-workspace">
+        ${ticketPicker}
+        ${solutionTicketContext(ticket)}
+        <div class="solution-empty" aria-labelledby="noAttemptsHeading">
+          <div class="solution-empty__body">
+            <h3 id="noAttemptsHeading">No solutions yet.</h3>
+            <p>${solving ? "The solver is working. Attempted solutions will collect here." : "No solutions have been attempted for this ticket yet."}</p>
+            <button class="btn btn--primary" id="runSolve" type="button" ${solving ? 'data-state="loading" disabled' : ""}>
+              ${solving ? "Running solver" : "Run solve"}
+            </button>
+          </div>
         </div>
       </section>
     `;
@@ -200,15 +319,9 @@ function solutionsTemplate() {
     : "";
 
   return `
-    <section class="solutions-workspace" aria-labelledby="selectedTicketHeading">
-      <div class="selected-ticket-head">
-        <button class="back-link" type="button" data-screen-link="tickets">← Tickets</button>
-        <div>
-          <span class="mono">${escapeHtml(ticket.id)} · ${escapeHtml(ticket.repository)}</span>
-          <h2 id="selectedTicketHeading">${escapeHtml(ticket.title)}</h2>
-        </div>
-        <p>${ticket.solutions.length} attempted ${ticket.solutions.length === 1 ? "solution" : "solutions"} · prototype data</p>
-      </div>
+    <section class="solutions-workspace">
+      ${ticketPicker}
+      ${solutionTicketContext(ticket)}
 
       ${currentDecision}
 
@@ -315,19 +428,25 @@ function submissionTemplate() {
       <form class="ticket-form" id="ticketForm" novalidate>
         <div class="error-summary" id="ticketErrorSummary" role="alert" tabindex="-1" hidden>
           <strong>Add the missing ticket details.</strong>
-          <span>Title and description are both required.</span>
+          <span>Title, description, and reporter are required.</span>
         </div>
 
         <div class="field">
-          <label class="field-label" for="ticketTitle">Ticket title</label>
+          <label class="field-label" for="ticketTitle">Ticket title <span class="field-required">Required</span></label>
           <input class="field-input" id="ticketTitle" name="title" type="text" autocomplete="off" aria-required="true" aria-describedby="ticketTitleHelp" placeholder="Checkout action stays disabled" />
           <span class="field-help" id="ticketTitleHelp">Name the observed problem, not the suspected fix.</span>
         </div>
 
         <div class="field">
-          <label class="field-label" for="ticketDescription">Problem and expected outcome</label>
+          <label class="field-label" for="ticketDescription">Problem and expected outcome <span class="field-required">Required</span></label>
           <textarea class="field-textarea" id="ticketDescription" name="description" aria-required="true" aria-describedby="ticketDescriptionHelp" placeholder="After updating a valid shipping address…"></textarea>
           <span class="field-help" id="ticketDescriptionHelp">Describe what happened, what you expected, and how to reproduce it.</span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="ticketReporter">Reported by <span class="field-required">Required</span></label>
+          <input class="field-input" id="ticketReporter" name="reporter" type="text" autocomplete="name" aria-required="true" aria-describedby="ticketReporterHelp" placeholder="Name or team" />
+          <span class="field-help" id="ticketReporterHelp">This appears in the ticket details so the team knows who supplied the context.</span>
         </div>
 
         <div class="field">
@@ -451,8 +570,21 @@ function bindTickets() {
     button.addEventListener("click", () => {
       const ticket = state.tickets.find((item) => item.id === button.dataset.openTicket);
       if (!ticket) return;
+      const expanding = state.expandedTicketId !== ticket.id;
+      state.expandedTicketId = expanding ? ticket.id : null;
+      persistState();
+      renderScreen("tickets", { focus: false, updateHash: false });
+      document.querySelector(`[data-open-ticket="${ticket.id}"]`)?.focus({ preventScroll: true });
+    });
+  });
+
+  document.querySelectorAll("[data-view-solutions], [data-solve-ticket]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const ticketId = button.dataset.viewSolutions || button.dataset.solveTicket;
+      const ticket = state.tickets.find((item) => item.id === ticketId);
+      if (!ticket) return;
       state.selectedTicketId = ticket.id;
-      state.selectedSolutionId = ticket.solutions[0]?.id || null;
+      state.selectedSolutionId = ticket.resolution?.solutionId || ticket.solutions[0]?.id || null;
       state.deliveryChoice = ticket.resolution?.delivery || "preview";
       persistState();
       renderScreen("solutions");
@@ -461,6 +593,16 @@ function bindTickets() {
 }
 
 function bindSolutions() {
+  document.querySelector("#solutionTicketSelect")?.addEventListener("change", (event) => {
+    const ticket = state.tickets.find((item) => item.id === event.currentTarget.value) || null;
+    state.selectedTicketId = ticket?.id || null;
+    state.selectedSolutionId = ticket?.resolution?.solutionId || ticket?.solutions[0]?.id || null;
+    state.deliveryChoice = ticket?.resolution?.delivery || "preview";
+    persistState();
+    renderScreen("solutions", { focus: false, updateHash: false });
+    document.querySelector("#solutionTicketSelect")?.focus({ preventScroll: true });
+  });
+
   const ticket = selectedTicket();
   if (!ticket) return;
 
@@ -523,8 +665,9 @@ function bindSubmission() {
   const form = document.querySelector("#ticketForm");
   const title = document.querySelector("#ticketTitle");
   const description = document.querySelector("#ticketDescription");
+  const reporter = document.querySelector("#ticketReporter");
 
-  [title, description].forEach((field) => {
+  [title, description, reporter].forEach((field) => {
     field.addEventListener("blur", () => validateRequired(field));
     field.addEventListener("input", () => {
       if (field.dataset.touched === "true") validateRequired(field);
@@ -535,9 +678,10 @@ function bindSubmission() {
     event.preventDefault();
     const titleValid = validateRequired(title);
     const descriptionValid = validateRequired(description);
+    const reporterValid = validateRequired(reporter);
     const summary = document.querySelector("#ticketErrorSummary");
 
-    if (!titleValid || !descriptionValid) {
+    if (!titleValid || !descriptionValid || !reporterValid) {
       summary.hidden = false;
       summary.focus({ preventScroll: true });
       return;
@@ -554,13 +698,16 @@ function bindSubmission() {
         id: nextTicketId(),
         title: title.value.trim(),
         description: description.value.trim(),
+        reporter: reporter.value.trim(),
+        createdAt: new Date().toISOString(),
         repository: document.querySelector("#ticketRepository").value,
         status: "Ready",
         solutions: [],
         resolution: null
       };
       state.tickets.unshift(ticket);
-      state.selectedTicketId = ticket.id;
+      state.selectedTicketId = null;
+      state.expandedTicketId = ticket.id;
       state.selectedSolutionId = null;
       persistState();
       renderScreen("tickets");
@@ -576,14 +723,18 @@ function validateRequired(field) {
 
   if (!valid) {
     helper.setAttribute("role", "alert");
-    helper.textContent = field.id === "ticketTitle"
-      ? "The ticket needs a title. Name the observed problem."
-      : "The ticket needs context. Add what happened and what you expected.";
+    helper.textContent = {
+      ticketTitle: "The ticket needs a title. Name the observed problem.",
+      ticketDescription: "The ticket needs context. Add what happened and what you expected.",
+      ticketReporter: "The ticket needs a reporter. Add the person or team who supplied it."
+    }[field.id];
   } else {
     helper.removeAttribute("role");
-    helper.textContent = field.id === "ticketTitle"
-      ? "Name the observed problem, not the suspected fix."
-      : "Describe what happened, what you expected, and how to reproduce it.";
+    helper.textContent = {
+      ticketTitle: "Name the observed problem, not the suspected fix.",
+      ticketDescription: "Describe what happened, what you expected, and how to reproduce it.",
+      ticketReporter: "This appears in the ticket details so the team knows who supplied the context."
+    }[field.id];
   }
 
   return valid;
@@ -659,6 +810,12 @@ document.addEventListener("click", (event) => {
   const link = event.target.closest("[data-screen-link]");
   if (!link) return;
   event.preventDefault();
+  if (link.classList.contains("tab-link") && link.dataset.screenLink === "solutions") {
+    state.selectedTicketId = null;
+    state.selectedSolutionId = null;
+    state.deliveryChoice = "preview";
+    persistState();
+  }
   renderScreen(link.dataset.screenLink);
 });
 
@@ -672,6 +829,12 @@ window.addEventListener("hashchange", () => {
 
 const initialRoute = window.location.hash.slice(1);
 const normalizedInitialRoute = routeAliases[initialRoute] || initialRoute;
+if (normalizedInitialRoute === "solutions") {
+  state.selectedTicketId = null;
+  state.selectedSolutionId = null;
+  state.deliveryChoice = "preview";
+  persistState();
+}
 renderScreen(screens[normalizedInitialRoute] ? normalizedInitialRoute : "tickets", {
   focus: false,
   updateHash: !screens[normalizedInitialRoute]
