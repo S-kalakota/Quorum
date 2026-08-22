@@ -1,6 +1,15 @@
 [
   {
     "date": "2026-08-22",
+    "macrostructure": "Index-First",
+    "theme": "Cobalt",
+    "enrichment": "none",
+    "nav": "N9 Edge-aligned minimal",
+    "footer": "Ft1 Mast-headed",
+    "brief": "Quorum consolidated ticket queue and solution decision workspace"
+  },
+  {
+    "date": "2026-08-22",
     "macrostructure": "Workbench",
     "theme": "Cobalt",
     "enrichment": "none",

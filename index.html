@@ -3,8 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="Quorum interface prototype for grounded intake, agent solve sessions, candidate comparison, and pull-request handoff." />
-    <title>Quorum — Agent Resolution Workbench</title>
+    <meta name="application-name" content="Quorum" />
+    <meta name="apple-mobile-web-app-title" content="Quorum" />
+    <meta name="description" content="Quorum keeps incoming tickets and attempted solutions in one quiet decision workspace." />
+    <title>Quorum</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&amp;family=JetBrains+Mono:wght@400;600&amp;family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet" />
@@ -16,154 +18,35 @@
 
     <header class="topbar">
       <div class="topbar__inner">
-        <a class="brand" href="#live" data-screen-link="live" aria-label="Quorum live session">
-          <span class="brand__mark" aria-hidden="true">AJ</span>
+        <a class="brand" href="#tickets" data-screen-link="tickets" aria-label="Quorum tickets">
+          <span class="brand__mark" aria-hidden="true">Q</span>
           <span>Quorum</span>
         </a>
 
-        <div class="topbar__workspace" aria-label="Current repository">
-          <span class="mono">frontend-platform</span>
-          <span aria-hidden="true"> · </span>
-          <span>Index ready</span>
-        </div>
-
-        <div class="topbar__actions">
-          <nav class="topbar__links" aria-label="Primary">
-            <button class="nav-link" type="button" data-screen-link="submission">Intake</button>
-            <button class="nav-link" type="button" data-screen-link="live">Sessions</button>
-            <button class="nav-link" type="button" data-screen-link="history">History</button>
-          </nav>
-
-          <button class="search-pill" id="commandTrigger" type="button" aria-haspopup="dialog" aria-controls="commandPalette">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-            <span class="search-pill__text">Find a screen or action</span>
-            <kbd>⌘K</kbd>
-          </button>
-
-          <button class="icon-button" type="button" popovertarget="notifications" aria-label="Open notifications">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>
-          </button>
-
-          <button class="btn btn--primary" type="button" data-screen-link="submission">New ticket</button>
-        </div>
+        <button class="btn btn--primary" type="button" data-screen-link="submission">New ticket</button>
       </div>
     </header>
 
-    <div class="app-shell">
-      <aside class="workflow-rail" aria-label="Workflow navigation">
-        <div class="rail-group">
-          <p class="rail-label">Intake</p>
-          <div class="rail-links">
-            <button class="rail-link" type="button" data-screen-link="setup">Setup</button>
-            <button class="rail-link" type="button" data-screen-link="submission">Submit issue</button>
-            <button class="rail-link" type="button" data-screen-link="clarification">Clarify</button>
-            <button class="rail-link" type="button" data-screen-link="ticket">Ticket</button>
-          </div>
-        </div>
+    <main class="workspace" id="main" tabindex="-1">
+      <div class="workspace-head">
+        <h1 id="screenTitle">Tickets</h1>
+        <p id="screenDescription">Incoming work appears here. Open a ticket to review every solution attempted for it.</p>
+      </div>
 
-        <div class="rail-group">
-          <p class="rail-label">Solve</p>
-          <div class="rail-links">
-            <button class="rail-link" type="button" data-screen-link="live">Live session</button>
-            <button class="rail-link" type="button" data-screen-link="results">Results</button>
-            <button class="rail-link" type="button" data-screen-link="candidate">Candidate detail</button>
-          </div>
-        </div>
+      <nav class="workspace-tabs" aria-label="Workspace">
+        <button class="tab-link" type="button" data-screen-link="tickets">Tickets</button>
+        <button class="tab-link" type="button" data-screen-link="solutions">Solutions</button>
+        <button class="tab-link" type="button" data-screen-link="setup">Setup</button>
+      </nav>
 
-        <div class="rail-group">
-          <p class="rail-label">Decide</p>
-          <div class="rail-links">
-            <button class="rail-link" type="button" data-screen-link="preview">Preview</button>
-            <button class="rail-link" type="button" data-screen-link="resolution">Resolution</button>
-            <button class="rail-link" type="button" data-screen-link="history">History</button>
-          </div>
-        </div>
-      </aside>
-
-      <main class="workspace" id="main" tabindex="-1">
-        <div class="mobile-screen-picker field">
-          <label class="field-label" for="mobileScreenSelect">Current screen</label>
-          <select class="field-select" id="mobileScreenSelect">
-            <option value="setup">Setup</option>
-            <option value="submission">Submit issue</option>
-            <option value="clarification">Clarification</option>
-            <option value="ticket">Ticket</option>
-            <option value="live">Live session</option>
-            <option value="results">Results</option>
-            <option value="candidate">Candidate detail</option>
-            <option value="preview">Preview environment</option>
-            <option value="resolution">Resolution</option>
-            <option value="history">Session history</option>
-          </select>
-        </div>
-
-        <div class="workspace-head">
-          <div class="workspace-title">
-            <p class="muted" id="screenStage">Solve</p>
-            <h1 id="screenTitle">Live session</h1>
-            <p id="screenDescription">Watch the solver and reviewer exchange evidence, run checks, and spend the session budget.</p>
-          </div>
-          <span class="fixture-flag">Illustrative fixture data</span>
-        </div>
-
-        <div class="screen-root" id="screenRoot" aria-live="off"></div>
-      </main>
-    </div>
+      <div class="screen-root" id="screenRoot" aria-live="off"></div>
+    </main>
 
     <footer class="system-foot">
-      <div class="system-foot__line">
-        <p><strong>Quorum</strong> · Human judgment at intake and resolution.</p>
-        <p><a href="#setup" data-screen-link="setup">Repository settings</a> · <span class="mono">prototype / local</span></p>
-      </div>
+      <strong>Quorum</strong>
+      <span>Tickets in, decisions out.</span>
+      <button class="foot-link" type="button" data-screen-link="setup">Repository setup</button>
     </footer>
-
-    <dialog id="commandPalette" aria-labelledby="commandTitle">
-      <h2 class="sr-only" id="commandTitle">Find a screen or action</h2>
-      <div class="command-field">
-        <input id="commandInput" type="search" autocomplete="off" placeholder="Search screens and actions" aria-controls="commandResults" aria-autocomplete="list" />
-        <kbd class="keycap">esc</kbd>
-      </div>
-      <div id="commandResults" class="command-list" role="listbox" aria-label="Commands"></div>
-      <div class="dialog__foot">
-        <span class="muted"><span class="keycap">↑</span> <span class="keycap">↓</span> navigate · <span class="keycap">↵</span> open</span>
-      </div>
-    </dialog>
-
-    <dialog id="cancelDialog" aria-labelledby="cancelTitle">
-      <div class="dialog__head">
-        <div class="stack-xs">
-          <p class="eyebrow">Irreversible session action</p>
-          <h2 id="cancelTitle">Cancel this solve session?</h2>
-        </div>
-        <button class="icon-button" type="button" data-dialog-close="cancelDialog" aria-label="Close cancel confirmation">×</button>
-      </div>
-      <div class="dialog__body">
-        <p>The current attempt will stop. Completed attempts and the ticket draft stay available.</p>
-      </div>
-      <div class="dialog__foot">
-        <button class="btn" type="button" data-dialog-close="cancelDialog">Keep running</button>
-        <button class="btn btn--danger-strong" id="confirmCancel" type="button">Cancel session</button>
-      </div>
-    </dialog>
-
-    <div id="notifications" popover aria-labelledby="notificationsTitle">
-      <div class="row-between">
-        <h2 id="notificationsTitle">Notifications</h2>
-        <span class="badge">2 events</span>
-      </div>
-      <div class="notification-list" aria-live="polite">
-        <div class="notification-row">
-          <div class="row-between"><strong>Preview environment ready</strong><span class="status-badge status-badge--success">Ready</span></div>
-          <p class="muted">Candidate A can be opened from Preview.</p>
-        </div>
-        <div class="notification-row">
-          <div class="row-between"><strong>Jira sync needs attention</strong><span class="status-badge status-badge--warning">Retry</span></div>
-          <p class="muted">The ticket is saved locally. Reconnect Jira from Setup.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
     <script src="app.js" defer></script>
   </body>
