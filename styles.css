@@ -1310,3 +1310,22 @@ code {
 .thread-reply { display: grid; gap: .5rem; margin-top: .5rem; }
 .ticket-brief { margin-top: 1rem; padding: .75rem 1rem; border: 1px solid var(--border, #d9dce3); border-radius: 6px; }
 .ticket-brief summary { cursor: pointer; }
+
+/* ---- View as (Reporter / Engineer) toggle in the topbar ---- */
+.topbar__tools { display: flex; align-items: center; gap: var(--space-md); }
+.role-toggle {
+  display: inline-flex; align-items: center; gap: var(--space-2xs);
+  min-height: var(--control-height); padding: var(--space-3xs);
+  border: var(--rule-thin) solid var(--color-rule); border-radius: var(--radius-sm); background: var(--color-paper-2);
+}
+.role-toggle__label { padding-inline: var(--space-sm) var(--space-xs); color: var(--color-muted); font-size: var(--text-sm); white-space: nowrap; }
+.role-toggle__option {
+  min-height: calc(var(--control-height) - var(--space-xs)); padding: var(--space-2xs) var(--space-sm);
+  border: var(--rule-thin) solid var(--color-transparent); border-radius: calc(var(--radius-sm) - var(--space-3xs));
+  background: var(--color-transparent); color: var(--color-muted);
+  font: inherit; font-size: var(--text-sm); font-weight: 700; white-space: nowrap; cursor: pointer;
+}
+.role-toggle__option[aria-pressed="true"] { border-color: var(--color-accent); background: var(--color-paper); color: var(--color-accent); }
+.role-toggle__option:active { transform: translateY(var(--rule-thin)); }
+.thread-reply + [data-retry-agent], .ticket-thread > [data-retry-agent] { justify-self: start; }
+@media (max-width: 40rem) { .role-toggle__label { display: none; } }

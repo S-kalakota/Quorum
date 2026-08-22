@@ -5,6 +5,8 @@
  */
 
 const STORAGE_KEY = "quorum-ui-v2";
+const ROLE_KEY = "quorum-role";                       // "reporter" (default) | "engineer"
+const ROLES = { reporter: "Reporter", engineer: "Engineer" };
 
 const screens = {
   tickets: {
@@ -21,7 +23,7 @@ const screens = {
   },
   submission: {
     title: "New ticket",
-    description: "Describe the problem once. The ticket goes straight into the queue."
+    description: "Describe the problem once. The intake agent starts clarifying it right away."
   }
 };
 
@@ -55,6 +57,7 @@ const deliveryOptions = {
 
 const state = {
   currentScreen: "tickets",
+  role: "reporter",
   tickets: [],
   selectedTicketId: null,
   expandedTicketId: null,
@@ -64,6 +67,40 @@ const state = {
 };
 
 restoreState();
+restoreRole();
+applyRole();
+
+// ---- View as: Reporter (answers the agent) / Engineer (sees the brief and solves) ----
+function isReporter() {
+  return state.role === "reporter";
+}
+
+function restoreRole() {
+  try {
+    const saved = window.localStorage.getItem(ROLE_KEY);
+    state.role = ROLES[saved] ? saved : "reporter";
+  } catch {
+    state.role = "reporter";
+  }
+}
+
+function setRole(role) {
+  if (!ROLES[role] || role === state.role) return;
+  state.role = role;
+  try { window.localStorage.setItem(ROLE_KEY, role); } catch { /* storage unavailable: keep it for this page load */ }
+  applyRole();
+  if (isReporter() && state.currentScreen === "solutions") renderScreen("tickets", { focus: false });
+  else renderScreen(state.currentScreen, { focus: false, updateHash: false });
+}
+
+// The topbar toggle and the Solutions tab follow the role; called on every render.
+function applyRole() {
+  document.querySelectorAll("[data-role]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.role === state.role));
+  });
+  const solutionsTab = document.querySelector('.tab-link[data-screen-link="solutions"]');
+  if (solutionsTab) solutionsTab.hidden = isReporter();
+}
 
 const API = window.location.port === "8000" ? "" : "http://localhost:8000";
 async function api(path, body, method) {
@@ -164,12 +201,11 @@ function ticketStatus(ticket) {
   if (ticket.status === "Brief ready" && !ticket.solutions.length) return { label: "Brief ready", tone: "warning" };
   if (ticket.status === "Solving") return { label: "Solving", tone: "active" };
   if (ticket.solutions.length) return { label: "Needs decision", tone: "warning" };
-  return { label: "Ready to solve", tone: "" };
+  return { label: "Queued", tone: "" };   // legacy "Ready" tickets from before the agent auto-started
 }
 
 function ticketStatusControl(ticket, status) {
-  if (status.label !== "Ready to solve") return statusBadge(status.label, status.tone);
-  return `<button class="ticket-ready-action" type="button" data-solve-ticket="${escapeHtml(ticket.id)}" aria-label="Solve ${escapeHtml(ticket.title)}">Ready to solve <span aria-hidden="true">→</span></button>`;
+  return statusBadge(status.label, status.tone);
 }
 
 function ticketsTemplate() {
@@ -219,6 +255,59 @@ function ticketRow(ticket) {
   `;
 }
 
+// Clarification thread, shared by the ticket detail and the Solutions context. Only the reporter lens gets a reply box;
+// "Retry agent" appears after an Agent error (the agent starts by itself when a ticket is created).
+function clarificationBlock(ticket, { canReply }) {
+  const isAgent = (name) => (name || "").toLowerCase().includes("agent");
+  const awaitingReply = ticket.status === "Clarifying" && ticket.comments.length > 0 && isAgent(ticket.comments.at(-1).author);
+  const placeholder = ticket.status === "Clarifying"
+    ? "The agent is reading the ticket and the code…"
+    : ticket.status === "Agent error" ? "The agent stopped before asking anything." : "No clarification was needed.";
+  const thread = ticket.comments.length
+    ? ticket.comments.map((c) => `
+        <article class="thread-comment ${isAgent(c.author) ? "thread-comment--agent" : ""}">
+          <header><strong>${escapeHtml(c.author)}</strong><span class="mono">${escapeHtml(c.created)}</span></header>
+          <pre class="thread-body">${escapeHtml(c.body)}</pre>
+        </article>`).join("")
+    : `<p class="muted">${placeholder}</p>`;
+  const replyBox = canReply && ticket.status === "Clarifying" ? `
+        <form class="thread-reply" data-reply-form="${escapeHtml(ticket.id)}">
+          <label class="field-label" for="reply-${escapeHtml(ticket.id)}">Reply as ${escapeHtml(ticket.reporter)}${awaitingReply ? "" : " (agent is thinking…)"}</label>
+          <textarea class="field-textarea" id="reply-${escapeHtml(ticket.id)}" rows="3" placeholder="Answer the agent, or type confirm"></textarea>
+          <div class="form-actions"><button class="btn btn--primary" type="submit" ${awaitingReply ? "" : "disabled"}>Post reply</button></div>
+        </form>` : "";
+  const retry = ticket.status === "Agent error" || ticket.status === "Ready"
+    ? `<button class="btn btn--quiet" type="button" data-retry-agent="${escapeHtml(ticket.id)}">${ticket.status === "Ready" ? "Start agent" : "Retry agent"}</button>`
+    : "";
+  const errorBlock = ticket.error ? `<p class="field-help" role="alert">Agent error: ${escapeHtml(ticket.error)}</p>` : "";
+
+  return `
+      <section class="ticket-thread" aria-label="Clarification with the agent">
+        <strong>Clarification</strong>
+        ${errorBlock}
+        ${thread}
+        ${replyBox}
+        ${retry}
+      </section>`;
+}
+
+function briefBlock(ticket) {
+  if (!ticket.briefMd) return "";
+  return `
+      <details class="ticket-brief" open>
+        <summary><strong>Task brief</strong> · confidence ${Math.round((ticket.brief?.confidence || 0) * 100)}%</summary>
+        <pre class="thread-body">${escapeHtml(ticket.briefMd)}</pre>
+      </details>`;
+}
+
+// Engineer-only header action: "Start solving" once the brief is ready, "Review solutions" once attempts exist.
+function ticketAction(ticket) {
+  if (isReporter()) return "";
+  const label = ticket.solutions.length ? "Review solutions" : ticket.status === "Brief ready" ? "Start solving" : "";
+  if (!label) return "";
+  return `<button class="btn btn--primary" type="button" data-view-solutions="${escapeHtml(ticket.id)}">${label}</button>`;
+}
+
 function ticketDetail(ticket, expanded) {
   const status = ticketStatus(ticket);
   const attempts = ticket.solutions.length
@@ -228,28 +317,9 @@ function ticketDetail(ticket, expanded) {
   const decision = ticket.resolution && delivery
     ? `${ticket.resolution.solutionTitle} · ${delivery.title}`
     : "No decision yet";
-  const actionLabel = ticket.solutions.length ? "Review solutions" : ticket.status === "Brief ready" ? "Start solving" : "Solve ticket";
-  const isAgent = (name) => (name || "").toLowerCase().includes("agent");
-  const awaitingReply = ticket.status === "Clarifying" && ticket.comments.length && isAgent(ticket.comments.at(-1).author);
-  const thread = ticket.comments.length
-    ? ticket.comments.map((c) => `
-        <article class="thread-comment ${isAgent(c.author) ? "thread-comment--agent" : ""}">
-          <header><strong>${escapeHtml(c.author)}</strong><span class="mono">${escapeHtml(c.created)}</span></header>
-          <pre class="thread-body">${escapeHtml(c.body)}</pre>
-        </article>`).join("")
-    : `<p class="muted">${ticket.status === "Clarifying" ? "The agent is reading the ticket and the code…" : "No clarification yet. Solve the ticket to start the agent."}</p>`;
-  const replyBox = ticket.status === "Clarifying" ? `
-        <form class="thread-reply" data-reply-form="${escapeHtml(ticket.id)}">
-          <label class="field-label" for="reply-${escapeHtml(ticket.id)}">Reply as ${escapeHtml(ticket.reporter)}${awaitingReply ? "" : " (agent is thinking…)"}</label>
-          <textarea class="field-textarea" id="reply-${escapeHtml(ticket.id)}" rows="3" placeholder="Answer the agent, or type confirm"></textarea>
-          <div class="form-actions"><button class="btn btn--primary" type="submit" ${awaitingReply ? "" : "disabled"}>Post reply</button></div>
-        </form>` : "";
-  const briefBlock = ticket.briefMd ? `
-      <details class="ticket-brief" open>
-        <summary><strong>Task brief</strong> · confidence ${Math.round((ticket.brief?.confidence || 0) * 100)}%</summary>
-        <pre class="thread-body">${escapeHtml(ticket.briefMd)}</pre>
-      </details>` : "";
-  const errorBlock = ticket.error ? `<p class="field-help" role="alert">Agent error: ${escapeHtml(ticket.error)}</p>` : "";
+  const engineerFacts = isReporter() ? "" : `
+        <div><dt>Solutions</dt><dd>${escapeHtml(attempts)}</dd></div>
+        <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>`;
 
   return `
     <section class="ticket-detail" id="ticketDetail-${escapeHtml(ticket.id)}" tabindex="-1" aria-labelledby="ticketDetailHeading-${escapeHtml(ticket.id)}" ${expanded ? "" : "hidden"}>
@@ -258,7 +328,7 @@ function ticketDetail(ticket, expanded) {
           <span class="mono">${escapeHtml(ticket.id)}</span>
           <h3 id="ticketDetailHeading-${escapeHtml(ticket.id)}">Ticket details</h3>
         </div>
-        <button class="btn btn--primary" type="button" data-view-solutions="${escapeHtml(ticket.id)}">${actionLabel}</button>
+        ${ticketAction(ticket)}
       </header>
 
       <div class="ticket-description">
@@ -271,17 +341,11 @@ function ticketDetail(ticket, expanded) {
         <div><dt>Created</dt><dd>${escapeHtml(formatTicketDate(ticket.createdAt))}</dd></div>
         <div><dt>Repository</dt><dd><code>${escapeHtml(ticket.repository)}</code></dd></div>
         <div><dt>Status</dt><dd>${statusBadge(status.label, status.tone)}</dd></div>
-        <div><dt>Solutions</dt><dd>${escapeHtml(attempts)}</dd></div>
-        <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
+        ${engineerFacts}
       </dl>
 
-      <section class="ticket-thread" aria-label="Clarification with the agent">
-        <strong>Clarification</strong>
-        ${errorBlock}
-        ${thread}
-        ${replyBox}
-      </section>
-      ${briefBlock}
+      ${clarificationBlock(ticket, { canReply: isReporter() })}
+      ${isReporter() ? "" : briefBlock(ticket)}
     </section>
   `;
 }
@@ -348,13 +412,8 @@ function solutionTicketContext(ticket) {
         <div><dt>Decision</dt><dd>${escapeHtml(decision)}</dd></div>
       </dl>
 
-      <section class="ticket-thread" aria-label="Clarification with the agent">
-        <strong>Clarification</strong>
-        ${errorBlock}
-        ${thread}
-        ${replyBox}
-      </section>
-      ${briefBlock}
+      ${clarificationBlock(ticket, { canReply: false })}
+      ${briefBlock(ticket)}
     </section>
   `;
 }
@@ -612,10 +671,12 @@ function setupTemplate() {
 
 function renderScreen(screenName, { focus = true, updateHash = true } = {}) {
   const normalized = routeAliases[screenName] || screenName;
-  const nextScreen = screens[normalized] ? normalized : "tickets";
+  const requested = screens[normalized] ? normalized : "tickets";
+  const redirected = requested === "solutions" && isReporter();   // reporters have no Solutions screen
+  const nextScreen = redirected ? "tickets" : requested;
   state.currentScreen = nextScreen;
 
-  if (updateHash && window.location.hash !== `#${nextScreen}`) {
+  if ((updateHash || redirected) && window.location.hash !== `#${nextScreen}`) {
     window.history.pushState(null, "", `#${nextScreen}`);
   }
 
@@ -637,6 +698,7 @@ function renderScreen(screenName, { focus = true, updateHash = true } = {}) {
     tab.setAttribute("aria-current", current ? "page" : "false");
   });
 
+  applyRole();
   bindScreen(nextScreen);
   if (focus) main.focus({ preventScroll: true });
 }
@@ -675,25 +737,29 @@ function bindTickets() {
     });
   });
 
-  document.querySelectorAll("[data-view-solutions], [data-solve-ticket]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const ticketId = button.dataset.viewSolutions || button.dataset.solveTicket;
-      const ticket = state.tickets.find((item) => item.id === ticketId);
-      if (!ticket) return;
-      if (!ticket.solutions.length && ticket.status !== "Brief ready") {
-        // Stage 1: run the intake agent; the conversation happens in the ticket thread.
-        button.disabled = true; button.textContent = "Starting agent…";
-        try { await api(`/api/tickets/${ticket.id}/solve`, {}); } catch (err) { alert(err.message); }
-        state.expandedTicketId = ticket.id;
-        await syncTickets();
-        renderScreen("tickets", { focus: false, updateHash: false });
-        return;
-      }
+  // Engineer: "Start solving" / "Review solutions" open the Solutions screen (the intake agent has already run).
+  document.querySelectorAll("[data-view-solutions]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const ticket = state.tickets.find((item) => item.id === button.dataset.viewSolutions);
+      if (!ticket || isReporter()) return;
       state.selectedTicketId = ticket.id;
       state.selectedSolutionId = ticket.resolution?.solutionId || ticket.solutions[0]?.id || null;
       state.deliveryChoice = ticket.resolution?.delivery || "preview";
       persistState();
       renderScreen("solutions");
+    });
+  });
+
+  // Manual retry after "Agent error" — POST /solve re-runs the intake agent on the same ticket.
+  document.querySelectorAll("[data-retry-agent]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const ticket = state.tickets.find((item) => item.id === button.dataset.retryAgent);
+      if (!ticket) return;
+      button.disabled = true; button.textContent = "Starting agent…";
+      try { await api(`/api/tickets/${ticket.id}/solve`, {}); } catch (err) { alert(err.message); }
+      state.expandedTicketId = ticket.id;
+      await syncTickets();
+      renderScreen("tickets", { focus: false, updateHash: false });
     });
   });
 }
@@ -910,6 +976,11 @@ function createFixtureSolutions(ticketId) {
 }
 
 document.addEventListener("click", (event) => {
+  const roleButton = event.target.closest("[data-role]");
+  if (roleButton) {
+    setRole(roleButton.dataset.role);
+    return;
+  }
   const link = event.target.closest("[data-screen-link]");
   if (!link) return;
   event.preventDefault();
