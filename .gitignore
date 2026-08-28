@@ -1,2 +1,12 @@
 .DS_Store
 .agents/
+
+# intake agent (agent/) runtime files
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
+agent/quorum_backend/tickets.json
+agent/brief.json
+agent/brief.md
