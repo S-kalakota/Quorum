@@ -23,7 +23,14 @@
           <span>Quorum</span>
         </a>
 
-        <button class="btn btn--primary" type="button" data-screen-link="submission">New ticket</button>
+        <div class="topbar__tools">
+          <div class="role-toggle" role="group" aria-label="View as">
+            <span class="role-toggle__label">View as</span>
+            <button class="role-toggle__option" type="button" data-role="reporter" aria-pressed="true">Reporter</button>
+            <button class="role-toggle__option" type="button" data-role="engineer" aria-pressed="false">Engineer</button>
+          </div>
+          <button class="btn btn--primary" type="button" data-screen-link="submission">New ticket</button>
+        </div>
       </div>
     </header>
 
